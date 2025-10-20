@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zip Extractor & Auto Downloader</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+  }
+  #drop-zone {
+    border: 3px dashed #38bdf8;
+    border-radius: 15px;
+    padding: 50px;
+    text-align: center;
+    transition: 0.3s;
+    width: 80%;
+    max-width: 500px;
+    cursor: pointer;
+  }
+  #drop-zone.dragover {
+    background: #1e293b;
+    border-color: #0ea5e9;
+  }
+  #status {
+    margin-top: 20px;
+    color: #a5f3fc;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div id="drop-zone">
+  <h2>Drag & Drop your .zip file here</h2>
+  <p>or click to select manually</p>
+  <input type="file" id="file-input" accept=".zip" hidden>
+  <div id="status"></div>
+</div>
+
+<!-- JSZip CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const statusText = document.getElementById('status');
+
+  // Handle click to open file dialog
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  // File input change handler
+  fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+  // Drag & drop handlers
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  async function handleFiles(files) {
+    if (!files.length) return;
+    const file = files[0];
+    if (!file.name.endsWith('.zip')) {
+      statusText.textContent = '❌ Please upload a .zip file only.';
+      return;
+    }
+
+    statusText.textContent = `📦 Reading ${file.name}...`;
+    const zip = new JSZip();
+
+    try {
+      const data = await file.arrayBuffer();
+      const loadedZip = await zip.loadAsync(data);
+      const filesList = Object.keys(loadedZip.files);
+      statusText.textContent = `✅ Extracting ${filesList.length} files...`;
+
+      for (const filename of filesList) {
+        const zipEntry = loadedZip.files[filename];
+        if (!zipEntry.dir) {
+          const content = await zipEntry.async('blob');
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(content);
+          link.download = filename.split('/').pop();
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          await new Promise(r => setTimeout(r, 200)); // small delay between downloads
+        }
+      }
+
+      statusText.textContent = `🎉 Extraction complete! All files downloaded.`;
+    } catch (err) {
+      console.error(err);
+      statusText.textContent = '❌ Failed to extract zip file.';
+    }
+  }
+</script>
+</body>
+</html>

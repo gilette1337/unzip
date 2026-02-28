@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zip Extractor & Auto Downloader</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Zip Extractor</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -33,78 +33,236 @@
     margin-top: 20px;
     color: #a5f3fc;
     font-size: 14px;
+    white-space: pre-wrap;
   }
+  .big-bottom{
+  display:block;
+  margin-top:8px;
+  font-size:28px;
+  font-weight:800;
+}
 </style>
 </head>
 <body>
 <div id="drop-zone">
   <h2>Drag & Drop your .zip file here</h2>
   <p>or click to select manually</p>
-  <input type="file" id="file-input" accept=".zip" hidden>
+  <input type="file" id="file-input" accept=".zip" hidden />
   <div id="status"></div>
 </div>
 
-<!-- JSZip CDN -->
+<!-- JSZip -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- ExcelJS -->
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
 <script>
-  const dropZone = document.getElementById('drop-zone');
-  const fileInput = document.getElementById('file-input');
-  const statusText = document.getElementById('status');
+  const dropZone = document.getElementById("drop-zone");
+  const fileInput = document.getElementById("file-input");
+  const statusText = document.getElementById("status");
 
-  // Handle click to open file dialog
-  dropZone.addEventListener('click', () => fileInput.click());
+  const IMAGE_URL = "https://i.ibb.co.com/jZGB2bgS/seals.jpg";
 
-  // File input change handler
-  fileInput.addEventListener('change', e => handleFiles(e.target.files));
+  // Bigger scale (2x) but keep aspect ratio
+  const SCALE_MULTIPLIER = 2;
 
-  // Drag & drop handlers
-  dropZone.addEventListener('dragover', e => {
+  // Still keep a reasonable maximum so it doesn't explode outside the sheet
+  // (You can increase these if you want it even larger.)
+  const MAX_IMG_WIDTH = 1300;
+  const MAX_IMG_HEIGHT = 700;
+
+  dropZone.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => handleFiles(e.target.files));
+
+  dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
-    dropZone.classList.add('dragover');
+    dropZone.classList.add("dragover");
   });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-  dropZone.addEventListener('drop', e => {
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
-    dropZone.classList.remove('dragover');
+    dropZone.classList.remove("dragover");
     handleFiles(e.dataTransfer.files);
   });
 
+  function setStatus(msg) {
+	statusText.innerHTML = msg;
+   }
+
+  function downloadBlob(blob, downloadName) {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = downloadName;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+  }
+
+  async function fetchImageBlob(url) {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error("Image fetch failed: HTTP " + res.status);
+    return await res.blob();
+  }
+
+  async function getImageSizeFromBlob(blob) {
+    if ("createImageBitmap" in window) {
+      const bmp = await createImageBitmap(blob);
+      const size = { width: bmp.width, height: bmp.height };
+      if ("close" in bmp) bmp.close();
+      return size;
+    }
+
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.decoding = "async";
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      return { width: img.naturalWidth, height: img.naturalHeight };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // Fit inside bounds while preserving aspect ratio,
+  // BUT allow upscaling (so 2x bigger is possible).
+  function fitAspectAllowUpscale(w, h, maxW, maxH) {
+    if (!w || !h) return { width: maxW, height: maxH };
+    const scale = Math.min(maxW / w, maxH / h);
+    return {
+      width: Math.max(1, Math.round(w * scale)),
+      height: Math.max(1, Math.round(h * scale)),
+    };
+  }
+
+  function guessExtensionFromBlob(blob) {
+    if (blob.type === "image/png") return "png";
+    return "jpeg";
+  }
+
+  async function addImageToXlsx(xlsxArrayBuffer, imageBlob) {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(xlsxArrayBuffer);
+
+    const ws = wb.worksheets[0] || wb.addWorksheet("Sheet1");
+
+    let lastRow = ws.actualRowCount || 1;
+    if (lastRow < 1) lastRow = 1;
+
+    const targetRow = lastRow + 2;
+
+    // Read original image size
+    const { width: imgW, height: imgH } = await getImageSizeFromBlob(imageBlob);
+
+    // Want 2x size bigger than original, keep aspect ratio
+    const desiredW = imgW * SCALE_MULTIPLIER;
+    const desiredH = imgH * SCALE_MULTIPLIER;
+
+    // Clamp to max bounds while preserving aspect ratio (still allows upscaling)
+    const fitted = fitAspectAllowUpscale(desiredW, desiredH, MAX_IMG_WIDTH, MAX_IMG_HEIGHT);
+
+    const imgArrayBuffer = await imageBlob.arrayBuffer();
+    const extension = guessExtensionFromBlob(imageBlob);
+
+    const imageId = wb.addImage({
+      buffer: new Uint8Array(imgArrayBuffer),
+      extension,
+    });
+
+    ws.addImage(imageId, {
+      tl: { col: 0, row: targetRow - 1 },
+      ext: { width: fitted.width, height: fitted.height },
+    });
+
+    const out = await wb.xlsx.writeBuffer();
+    return out;
+  }
+
   async function handleFiles(files) {
-    if (!files.length) return;
+    if (!files || !files.length) return;
     const file = files[0];
-    if (!file.name.endsWith('.zip')) {
-      statusText.textContent = '❌ Please upload a .zip file only.';
+
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setStatus("❌ Please upload a .zip file only.");
       return;
     }
 
-    statusText.textContent = `📦 Reading ${file.name}...`;
-    const zip = new JSZip();
+    setStatus(`📦 Reading ${file.name}...`);
 
     try {
+      const zip = new JSZip();
       const data = await file.arrayBuffer();
       const loadedZip = await zip.loadAsync(data);
-      const filesList = Object.keys(loadedZip.files);
-      statusText.textContent = `✅ Extracting ${filesList.length} files...`;
 
-      for (const filename of filesList) {
-        const zipEntry = loadedZip.files[filename];
-        if (!zipEntry.dir) {
-          const content = await zipEntry.async('blob');
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(content);
-          link.download = filename.split('/').pop();
-          link.style.display = 'none';
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          await new Promise(r => setTimeout(r, 200)); // small delay between downloads
-        }
+      const filesList = Object.keys(loadedZip.files).filter((f) => !loadedZip.files[f].dir);
+
+      setStatus(`✅ Extracting ${filesList.length} files...\n`);
+
+      let imageBlob = null;
+      try {
+        imageBlob = await fetchImageBlob(IMAGE_URL);
+        const s = await getImageSizeFromBlob(imageBlob);
+        setStatus(
+          statusText.textContent +
+          `` +
+          ``
+        );
+      } catch (e) {
+        setStatus(
+          statusText.textContent +
+          "⚠️ Could not load the image (CORS / blocked host).\n" +
+          "   Excel will be downloaded WITHOUT embedded image.\n" +
+          "   Tip: host it on GitHub (raw link) or another CORS-friendly host.\n\n"
+        );
       }
 
-      statusText.textContent = `🎉 Extraction complete! All files downloaded.`;
+      for (const filename of filesList) {
+        const entry = loadedZip.files[filename];
+        const baseName = filename.split("/").pop();
+
+        if (baseName.toLowerCase().endsWith(".xlsx")) {
+          setStatus(statusText.textContent + `📄 Processing Excel: ${baseName}\n`);
+          const xlsxBuf = await entry.async("arraybuffer");
+
+          if (imageBlob) {
+            try {
+              const modified = await addImageToXlsx(xlsxBuf, imageBlob);
+              const outBlob = new Blob([modified], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              });
+              downloadBlob(outBlob, baseName);
+            } catch (e) {
+              console.error(e);
+              setStatus(statusText.textContent + `⚠️ Failed to embed image into ${baseName}. Downloading original.\n`);
+              const originalBlob = await entry.async("blob");
+              downloadBlob(originalBlob, baseName);
+            }
+          } else {
+            const originalBlob = await entry.async("blob");
+            downloadBlob(originalBlob, baseName);
+          }
+        } else {
+          const content = await entry.async("blob");
+          downloadBlob(content, baseName);
+        }
+
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      setStatus(
+	  statusText.innerHTML +
+	  `<br>🎉 Extraction complete! All files downloaded.` +
+	  `<br><span class="big-bottom">semangat dut</span>`
+	);
+	  
     } catch (err) {
       console.error(err);
-      statusText.textContent = '❌ Failed to extract zip file.';
+      setStatus("❌ Failed to extract zip file.");
     }
   }
 </script>

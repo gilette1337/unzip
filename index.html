@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Zip Extractor</title>
+
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -36,14 +37,92 @@
     white-space: pre-wrap;
   }
   .big-bottom{
-  display:block;
-  margin-top:8px;
-  font-size:28px;
-  font-weight:800;
-}
+    display:block;
+    margin-top:8px;
+    font-size:28px;
+    font-weight:800;
+  }
+
+  /* =========================
+     CLICK TO OPEN OVERLAY
+     ========================= */
+  #clickOverlay{
+    position:fixed;
+    inset:0;
+    z-index:999999;
+    background:#000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    user-select:none;
+    overflow:hidden;
+  }
+
+  #clickOverlay .overlay-text{
+    position:relative;
+    z-index:3;
+    color:#fff;
+    font-weight:800;
+    font-size:clamp(32px, 6vw, 90px);
+    letter-spacing:0.06em;
+    text-align:center;
+    opacity:1;
+    transition:opacity 650ms ease, transform 650ms ease;
+    text-shadow:0 0 18px rgba(255,255,255,0.18);
+  }
+
+  #clickOverlay .gate{
+    position:absolute;
+    top:0;
+    bottom:0;
+    width:50%;
+    background:#000;
+    z-index:2;
+    transition:transform 900ms cubic-bezier(.22,.61,.36,1);
+  }
+  #clickOverlay .gate-left{ left:0; transform:translateX(0); }
+  #clickOverlay .gate-right{ right:0; transform:translateX(0); }
+
+  #clickOverlay::after{
+    content:"";
+    position:absolute;
+    top:0;
+    bottom:0;
+    left:50%;
+    width:2px;
+    transform:translateX(-1px);
+    background:rgba(255,255,255,0.08);
+    z-index:2;
+    opacity:0.6;
+    transition:opacity 400ms ease;
+  }
+
+  #clickOverlay.open .overlay-text{
+    opacity:0;
+    transform:scale(0.98);
+  }
+  #clickOverlay.open .gate-left{
+    transform:translateX(-110%);
+  }
+  #clickOverlay.open .gate-right{
+    transform:translateX(110%);
+  }
+  #clickOverlay.open::after{
+    opacity:0;
+  }
 </style>
 </head>
+
 <body>
+
+<!-- CLICK TO OPEN OVERLAY (forces first click) -->
+<div id="clickOverlay" role="button" aria-label="Click to open" tabindex="0">
+  <div class="gate gate-left"></div>
+  <div class="gate gate-right"></div>
+  <div class="overlay-text">CLICK TO OPEN</div>
+</div>
+
 <div id="drop-zone">
   <h2>Drag & Drop your .zip file here</h2>
   <p>or click to select manually</p>
@@ -51,9 +130,12 @@
   <div id="status"></div>
 </div>
 
-<!-- JSZip -->
+<!-- Hidden YouTube Player Host -->
+<div id="yt-music" style="position:fixed; width:0; height:0; overflow:hidden;">
+  <div id="player"></div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<!-- ExcelJS -->
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
 <script>
@@ -67,7 +149,6 @@
   const SCALE_MULTIPLIER = 2;
 
   // Still keep a reasonable maximum so it doesn't explode outside the sheet
-  // (You can increase these if you want it even larger.)
   const MAX_IMG_WIDTH = 1300;
   const MAX_IMG_HEIGHT = 700;
 
@@ -86,8 +167,8 @@
   });
 
   function setStatus(msg) {
-	statusText.innerHTML = msg;
-   }
+    statusText.innerHTML = msg;
+  }
 
   function downloadBlob(blob, downloadName) {
     const link = document.createElement("a");
@@ -129,8 +210,6 @@
     }
   }
 
-  // Fit inside bounds while preserving aspect ratio,
-  // BUT allow upscaling (so 2x bigger is possible).
   function fitAspectAllowUpscale(w, h, maxW, maxH) {
     if (!w || !h) return { width: maxW, height: maxH };
     const scale = Math.min(maxW / w, maxH / h);
@@ -156,14 +235,11 @@
 
     const targetRow = lastRow + 2;
 
-    // Read original image size
     const { width: imgW, height: imgH } = await getImageSizeFromBlob(imageBlob);
 
-    // Want 2x size bigger than original, keep aspect ratio
     const desiredW = imgW * SCALE_MULTIPLIER;
     const desiredH = imgH * SCALE_MULTIPLIER;
 
-    // Clamp to max bounds while preserving aspect ratio (still allows upscaling)
     const fitted = fitAspectAllowUpscale(desiredW, desiredH, MAX_IMG_WIDTH, MAX_IMG_HEIGHT);
 
     const imgArrayBuffer = await imageBlob.arrayBuffer();
@@ -206,12 +282,7 @@
       let imageBlob = null;
       try {
         imageBlob = await fetchImageBlob(IMAGE_URL);
-        const s = await getImageSizeFromBlob(imageBlob);
-        setStatus(
-          statusText.textContent +
-          `` +
-          ``
-        );
+        await getImageSizeFromBlob(imageBlob);
       } catch (e) {
         setStatus(
           statusText.textContent +
@@ -255,16 +326,96 @@
       }
 
       setStatus(
-	  statusText.innerHTML +
-	  `<br>🎉 Extraction complete! All files downloaded.` +
-	  `<br><span class="big-bottom">semangat dut</span>`
-	);
-	  
+        statusText.innerHTML +
+        `<br>🎉 Extraction complete! All files downloaded.` +
+        `<br><span class="big-bottom">semangat dut</span>`
+      );
+
     } catch (err) {
       console.error(err);
       setStatus("❌ Failed to extract zip file.");
     }
   }
+
+  /* =========================
+     YOUTUBE MUSIC (start ONLY after clickOverlay)
+     ========================= */
+
+  // your video settings
+  const YT_VIDEO_ID = "eQ1DQ95Itxc";
+  const YT_START_SECONDS = 30; // 00:19
+  const YT_VOLUME = 50;
+
+  // Load YouTube API
+  var tag = document.createElement('script');
+  tag.src = "https://www.youtube.com/iframe_api";
+  document.body.appendChild(tag);
+
+  var player = null;
+  var ytReady = false;
+
+  function onYouTubeIframeAPIReady() {
+    player = new YT.Player('player', {
+      height: '0',
+      width: '0',
+      videoId: YT_VIDEO_ID,
+      playerVars: {
+        autoplay: 0,               // IMPORTANT: don't start before click
+        controls: 0,
+        loop: 1,
+        start: YT_START_SECONDS,   // for initial start
+        playlist: YT_VIDEO_ID,     // looping requires playlist
+        modestbranding: 1
+      },
+      events: {
+        onReady: function () {
+          ytReady = true;
+          // Do NOT play here. We will play ONLY after overlay click.
+        }
+      }
+    });
+  }
+
+  // called after overlay click
+  function startMusicFrom19() {
+    if (!ytReady || !player) return;
+
+    try {
+      // Ensure it starts exactly at 00:19 on first play
+      player.seekTo(YT_START_SECONDS, true);
+      player.setVolume(YT_VOLUME);
+      player.unMute();
+      player.playVideo();
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  /* =========================
+     CLICK TO OPEN OVERLAY LOGIC
+     ========================= */
+  (function(){
+    const overlay = document.getElementById('clickOverlay');
+
+    function unlockEverything(){
+      // animate hangar gate
+      overlay.classList.add('open');
+
+      // start music EXACTLY after the click
+      startMusicFrom19();
+
+      // remove overlay after animation ends
+      setTimeout(() => {
+        overlay.remove();
+      }, 950);
+    }
+
+    overlay.addEventListener('click', unlockEverything);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') unlockEverything();
+    });
+  })();
 </script>
+
 </body>
 </html>

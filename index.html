@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Zip Extractor</title>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zip Extractor & Auto Downloader</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -34,384 +33,80 @@
     margin-top: 20px;
     color: #a5f3fc;
     font-size: 14px;
-    white-space: pre-wrap;
-  }
-  .big-bottom{
-    display:block;
-    margin-top:8px;
-    font-size:28px;
-    font-weight:800;
-  }
-
-  /* =========================
-     CLICK TO OPEN OVERLAY
-     ========================= */
-  #clickOverlay{
-    position:fixed;
-    inset:0;
-    z-index:999999;
-    background:#000;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    cursor:pointer;
-    user-select:none;
-    overflow:hidden;
-  }
-
-  #clickOverlay .overlay-text{
-    position:relative;
-    z-index:3;
-    color:#fff;
-    font-weight:800;
-    font-size:clamp(32px, 6vw, 90px);
-    letter-spacing:0.06em;
-    text-align:center;
-    opacity:1;
-    transition:opacity 650ms ease, transform 650ms ease;
-    text-shadow:0 0 18px rgba(255,255,255,0.18);
-  }
-
-  #clickOverlay .gate{
-    position:absolute;
-    top:0;
-    bottom:0;
-    width:50%;
-    background:#000;
-    z-index:2;
-    transition:transform 900ms cubic-bezier(.22,.61,.36,1);
-  }
-  #clickOverlay .gate-left{ left:0; transform:translateX(0); }
-  #clickOverlay .gate-right{ right:0; transform:translateX(0); }
-
-  #clickOverlay::after{
-    content:"";
-    position:absolute;
-    top:0;
-    bottom:0;
-    left:50%;
-    width:2px;
-    transform:translateX(-1px);
-    background:rgba(255,255,255,0.08);
-    z-index:2;
-    opacity:0.6;
-    transition:opacity 400ms ease;
-  }
-
-  #clickOverlay.open .overlay-text{
-    opacity:0;
-    transform:scale(0.98);
-  }
-  #clickOverlay.open .gate-left{
-    transform:translateX(-110%);
-  }
-  #clickOverlay.open .gate-right{
-    transform:translateX(110%);
-  }
-  #clickOverlay.open::after{
-    opacity:0;
   }
 </style>
 </head>
-
 <body>
-
-<!-- CLICK TO OPEN OVERLAY (forces first click) -->
-<div id="clickOverlay" role="button" aria-label="Click to open" tabindex="0">
-  <div class="gate gate-left"></div>
-  <div class="gate gate-right"></div>
-  <div class="overlay-text">CLICK TO OPEN</div>
-</div>
-
 <div id="drop-zone">
   <h2>Drag & Drop your .zip file here</h2>
   <p>or click to select manually</p>
-  <input type="file" id="file-input" accept=".zip" hidden />
+  <input type="file" id="file-input" accept=".zip" hidden>
   <div id="status"></div>
 </div>
 
-<!-- Hidden YouTube Player Host -->
-<div id="yt-music" style="position:fixed; width:0; height:0; overflow:hidden;">
-  <div id="player"></div>
-</div>
-
+<!-- JSZip CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-
 <script>
-  const dropZone = document.getElementById("drop-zone");
-  const fileInput = document.getElementById("file-input");
-  const statusText = document.getElementById("status");
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const statusText = document.getElementById('status');
 
-  const IMAGE_URL = "https://i.ibb.co.com/v6ygh25W/seals.jpg";
+  // Handle click to open file dialog
+  dropZone.addEventListener('click', () => fileInput.click());
 
-  // Bigger scale (2x) but keep aspect ratio
-  const SCALE_MULTIPLIER = 2;
+  // File input change handler
+  fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
-  // Still keep a reasonable maximum so it doesn't explode outside the sheet
-  const MAX_IMG_WIDTH = 1300;
-  const MAX_IMG_HEIGHT = 700;
-
-  dropZone.addEventListener("click", () => fileInput.click());
-  fileInput.addEventListener("change", (e) => handleFiles(e.target.files));
-
-  dropZone.addEventListener("dragover", (e) => {
+  // Drag & drop handlers
+  dropZone.addEventListener('dragover', e => {
     e.preventDefault();
-    dropZone.classList.add("dragover");
+    dropZone.classList.add('dragover');
   });
-  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
-  dropZone.addEventListener("drop", (e) => {
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
     e.preventDefault();
-    dropZone.classList.remove("dragover");
+    dropZone.classList.remove('dragover');
     handleFiles(e.dataTransfer.files);
   });
 
-  function setStatus(msg) {
-    statusText.innerHTML = msg;
-  }
-
-  function downloadBlob(blob, downloadName) {
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = downloadName;
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
-  }
-
-  async function fetchImageBlob(url) {
-    const res = await fetch(url, { mode: "cors" });
-    if (!res.ok) throw new Error("Image fetch failed: HTTP " + res.status);
-    return await res.blob();
-  }
-
-  async function getImageSizeFromBlob(blob) {
-    if ("createImageBitmap" in window) {
-      const bmp = await createImageBitmap(blob);
-      const size = { width: bmp.width, height: bmp.height };
-      if ("close" in bmp) bmp.close();
-      return size;
-    }
-
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = new Image();
-      img.decoding = "async";
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = url;
-      });
-      return { width: img.naturalWidth, height: img.naturalHeight };
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
-  function fitAspectAllowUpscale(w, h, maxW, maxH) {
-    if (!w || !h) return { width: maxW, height: maxH };
-    const scale = Math.min(maxW / w, maxH / h);
-    return {
-      width: Math.max(1, Math.round(w * scale)),
-      height: Math.max(1, Math.round(h * scale)),
-    };
-  }
-
-  function guessExtensionFromBlob(blob) {
-    if (blob.type === "image/png") return "png";
-    return "jpeg";
-  }
-
-  async function addImageToXlsx(xlsxArrayBuffer, imageBlob) {
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(xlsxArrayBuffer);
-
-    const ws = wb.worksheets[0] || wb.addWorksheet("Sheet1");
-
-    let lastRow = ws.actualRowCount || 1;
-    if (lastRow < 1) lastRow = 1;
-
-    const targetRow = lastRow + 2;
-
-    const { width: imgW, height: imgH } = await getImageSizeFromBlob(imageBlob);
-
-    const desiredW = imgW * SCALE_MULTIPLIER;
-    const desiredH = imgH * SCALE_MULTIPLIER;
-
-    const fitted = fitAspectAllowUpscale(desiredW, desiredH, MAX_IMG_WIDTH, MAX_IMG_HEIGHT);
-
-    const imgArrayBuffer = await imageBlob.arrayBuffer();
-    const extension = guessExtensionFromBlob(imageBlob);
-
-    const imageId = wb.addImage({
-      buffer: new Uint8Array(imgArrayBuffer),
-      extension,
-    });
-
-    ws.addImage(imageId, {
-      tl: { col: 0, row: targetRow - 1 },
-      ext: { width: fitted.width, height: fitted.height },
-    });
-
-    const out = await wb.xlsx.writeBuffer();
-    return out;
-  }
-
   async function handleFiles(files) {
-    if (!files || !files.length) return;
+    if (!files.length) return;
     const file = files[0];
-
-    if (!file.name.toLowerCase().endsWith(".zip")) {
-      setStatus("❌ Please upload a .zip file only.");
+    if (!file.name.endsWith('.zip')) {
+      statusText.textContent = '❌ Please upload a .zip file only.';
       return;
     }
 
-    setStatus(`📦 Reading ${file.name}...`);
+    statusText.textContent = `📦 Reading ${file.name}...`;
+    const zip = new JSZip();
 
     try {
-      const zip = new JSZip();
       const data = await file.arrayBuffer();
       const loadedZip = await zip.loadAsync(data);
-
-      const filesList = Object.keys(loadedZip.files).filter((f) => !loadedZip.files[f].dir);
-
-      setStatus(`✅ Extracting ${filesList.length} files...\n`);
-
-      let imageBlob = null;
-      try {
-        imageBlob = await fetchImageBlob(IMAGE_URL);
-        await getImageSizeFromBlob(imageBlob);
-      } catch (e) {
-        setStatus(
-          statusText.textContent +
-          "⚠️ Could not load the image (CORS / blocked host).\n" +
-          "   Excel will be downloaded WITHOUT embedded image.\n" +
-          "   Tip: host it on GitHub (raw link) or another CORS-friendly host.\n\n"
-        );
-      }
+      const filesList = Object.keys(loadedZip.files);
+      statusText.textContent = `✅ Extracting ${filesList.length} files...`;
 
       for (const filename of filesList) {
-        const entry = loadedZip.files[filename];
-        const baseName = filename.split("/").pop();
-
-        if (baseName.toLowerCase().endsWith(".xlsx")) {
-          setStatus(statusText.textContent + `📄 Processing Excel: ${baseName}\n`);
-          const xlsxBuf = await entry.async("arraybuffer");
-
-          if (imageBlob) {
-            try {
-              const modified = await addImageToXlsx(xlsxBuf, imageBlob);
-              const outBlob = new Blob([modified], {
-                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              });
-              downloadBlob(outBlob, baseName);
-            } catch (e) {
-              console.error(e);
-              setStatus(statusText.textContent + `⚠️ Failed to embed image into ${baseName}. Downloading original.\n`);
-              const originalBlob = await entry.async("blob");
-              downloadBlob(originalBlob, baseName);
-            }
-          } else {
-            const originalBlob = await entry.async("blob");
-            downloadBlob(originalBlob, baseName);
-          }
-        } else {
-          const content = await entry.async("blob");
-          downloadBlob(content, baseName);
+        const zipEntry = loadedZip.files[filename];
+        if (!zipEntry.dir) {
+          const content = await zipEntry.async('blob');
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(content);
+          link.download = filename.split('/').pop();
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          await new Promise(r => setTimeout(r, 200)); // small delay between downloads
         }
-
-        await new Promise((r) => setTimeout(r, 200));
       }
 
-      setStatus(
-        statusText.innerHTML +
-        `<br>🎉 Extraction complete! All files downloaded.` +
-        `<br><span class="big-bottom">semangat dut</span>`
-      );
-
+      statusText.textContent = `🎉 Extraction complete! All files downloaded.`;
     } catch (err) {
       console.error(err);
-      setStatus("❌ Failed to extract zip file.");
+      statusText.textContent = '❌ Failed to extract zip file.';
     }
   }
-
-  // Awikwok
-  const YT_VIDEO_ID = "FyfOMLJehsI";
-  const YT_START_SECONDS = 0; //
-  const YT_VOLUME = 100;
-
-  // Load YouTube API
-  var tag = document.createElement('script');
-  tag.src = "https://www.youtube.com/iframe_api";
-  document.body.appendChild(tag);
-
-  var player = null;
-  var ytReady = false;
-
-  function onYouTubeIframeAPIReady() {
-    player = new YT.Player('player', {
-      height: '0',
-      width: '0',
-      videoId: YT_VIDEO_ID,
-      playerVars: {
-        autoplay: 0,               // IMPORTANT: don't start before click
-        controls: 0,
-        loop: 1,
-        start: YT_START_SECONDS,   // for initial start
-        playlist: YT_VIDEO_ID,     // looping requires playlist
-        modestbranding: 1
-      },
-      events: {
-        onReady: function () {
-          ytReady = true;
-          // Do NOT play here. We will play ONLY after overlay click.
-        }
-      }
-    });
-  }
-
-  // called after overlay click
-  function startMusicFrom19() {
-    if (!ytReady || !player) return;
-
-    try {
-      // Ensure it starts exactly at 00:19 on first play
-      player.seekTo(YT_START_SECONDS, true);
-      player.setVolume(YT_VOLUME);
-      player.unMute();
-      player.playVideo();
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  /* =========================
-     CLICK TO OPEN OVERLAY LOGIC
-     ========================= */
-  (function(){
-    const overlay = document.getElementById('clickOverlay');
-
-    function unlockEverything(){
-      // animate hangar gate
-      overlay.classList.add('open');
-
-      // start music EXACTLY after the click
-      startMusicFrom19();
-
-      // remove overlay after animation ends
-      setTimeout(() => {
-        overlay.remove();
-      }, 950);
-    }
-
-    overlay.addEventListener('click', unlockEverything);
-    overlay.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') unlockEverything();
-    });
-  })();
 </script>
-
 </body>
 </html>

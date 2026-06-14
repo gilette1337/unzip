@@ -1,1 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>:/</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #2b2b2b;          /* dark grey – shows behind/around the GIF */
+    overflow: hidden;
+  }
+  /* The canvas where the chroma-keyed GIF is drawn */
+  #bg {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;            /* behaves like background-size: cover */
+    z-index: -1;
+  }
+  /* Hidden YouTube player */
+  #yt-player {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    top: -100px;
+    left: -100px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* One-time hint so users know to click (needed to unmute audio) */
+  #hint {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: sans-serif;
+    font-size: 14px;
+    color: #ccc;
+    background: rgba(0,0,0,.55);
+    padding: 8px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
 
+  <canvas id="bg"></canvas>
+  <div id="yt-player"></div>
+  <div id="hint">🔊 Click anywhere to enable music</div>
+
+  <script type="module">
+    /* =========================================================
+       CONFIG
+    ========================================================= */
+    const GIF_URL   = "https://i.makeagif.com/media/4-17-2026/vrDqhy.gif";
+    const GREY      = [0x2b, 0x2b, 0x2b];   // replacement colour (#2b2b2b)
+
+    // Green-detection tuning. A pixel counts as "green background" if
+    // green clearly dominates red and blue. Loosen/tighten these if
+    // some green remains or too much gets removed.
+    function isGreen(r, g, b) {
+      return g > 90 && g > r * 1.3 && g > b * 1.3;
+    }
+
+    /* =========================================================
+       GIF DECODE + CHROMA KEY  (uses gifuct-js via esm.sh)
+    ========================================================= */
+    import { parseGIF, decompressFrames } from "https://esm.sh/gifuct-js@2.1.2";
+
+    const canvas = document.getElementById("bg");
+    const ctx = canvas.getContext("2d");
+
+    async function loadGif() {
+      let frames;
+      try {
+        const buff = await (await fetch(GIF_URL)).arrayBuffer();
+        const gif  = parseGIF(buff);
+        frames     = decompressFrames(gif, true);
+      } catch (err) {
+        // CORS or network failure: fall back to showing the GIF as-is
+        console.warn("Could not decode GIF (likely CORS). Falling back.", err);
+        document.body.style.background =
+          `#2b2b2b url("${GIF_URL}") center/cover no-repeat`;
+        canvas.style.display = "none";
+        return;
+      }
+
+      // Match canvas resolution to the GIF's logical screen size
+      canvas.width  = frames[0].dims.width;
+      canvas.height = frames[0].dims.height;
+      // Re-check in case later frames are larger:
+      for (const f of frames) {
+        canvas.width  = Math.max(canvas.width,  f.dims.left + f.dims.width);
+        canvas.height = Math.max(canvas.height, f.dims.top  + f.dims.height);
+      }
+      // Paint everything grey first
+      ctx.fillStyle = `rgb(${GREY.join(",")})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Temp canvas for assembling each (possibly partial) frame patch
+      const tmp = document.createElement("canvas");
+      const tctx = tmp.getContext("2d");
+
+      let i = 0;
+      function drawNext() {
+        const frame = frames[i];
+        const { width, height, left, top } = frame.dims;
+
+        // Chroma-key the patch: turn every green pixel into dark grey
+        const patch = frame.patch;            // RGBA Uint8ClampedArray
+        for (let p = 0; p < patch.length; p += 4) {
+          if (isGreen(patch[p], patch[p + 1], patch[p + 2])) {
+            patch[p]     = GREY[0];
+            patch[p + 1] = GREY[1];
+            patch[p + 2] = GREY[2];
+            patch[p + 3] = 255;
+          }
+        }
+
+        tmp.width = width;
+        tmp.height = height;
+        const imgData = tctx.createImageData(width, height);
+        imgData.data.set(patch);
+        tctx.putImageData(imgData, 0, 0);
+
+        // Composite the patch onto the main canvas at its position
+        ctx.drawImage(tmp, left, top);
+
+        i = (i + 1) % frames.length;
+        setTimeout(drawNext, frame.delay || 100);  // delay is in ms
+      }
+      drawNext();
+    }
+    loadGif();
+
+    /* =========================================================
+       HIDDEN YOUTUBE AUDIO (autoplay muted -> unmute on click)
+    ========================================================= */
+    let player;
+    window.onYouTubeIframeAPIReady = function () {
+      player = new YT.Player("yt-player", {
+        videoId: "7Qo_NJGas2A",
+        playerVars: {
+          autoplay: 1,
+          loop: 1,
+          playlist: "7Qo_NJGas2A", // required for loop to work
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          modestbranding: 1
+        },
+        events: {
+          onReady: (e) => {
+            e.target.mute();        // muted autoplay IS allowed
+            e.target.playVideo();
+          }
+        }
+      });
+    };
+
+    // Load the YouTube IFrame API
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+
+    // First user gesture -> unmute and (re)play with sound
+    function enableSound() {
+      if (player && player.unMute) {
+        player.unMute();
+        player.setVolume(100);
+        player.playVideo();
+      }
+      document.getElementById("hint").style.display = "none";
+      window.removeEventListener("click", enableSound);
+      window.removeEventListener("keydown", enableSound);
+      window.removeEventListener("touchstart", enableSound);
+    }
+    window.addEventListener("click", enableSound);
+    window.addEventListener("keydown", enableSound);
+    window.addEventListener("touchstart", enableSound);
+  </script>
+
+</body>
+</html>
